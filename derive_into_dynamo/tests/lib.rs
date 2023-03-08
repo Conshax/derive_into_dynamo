@@ -1,18 +1,26 @@
 #[cfg(test)]
 mod tests {
-    use dynamo_parser::DynamoItem;
+    use aws_sdk_dynamodb;
+    use derive_into_dynamo::IntoDynamoItem;
+    use into_dynamo::IntoAttributeValue;
 
     type FakeUsize = usize;
 
-    #[derive(DynamoItem)]
+    #[derive(IntoDynamoItem)]
+    pub struct SubStruct {
+        test: String,
+    }
+
+    #[derive(IntoDynamoItem)]
     pub struct TestStruct {
         string_name: String,
-        usize_name: usize,
+        usize_name: FakeUsize,
         isize_name: isize,
         bool_name: bool,
         vec_string_name: Vec<String>,
         option_name_some: Option<String>,
         option_name_none: Option<Vec<String>>,
+        substruct_name: SubStruct,
     }
 
     #[test]
@@ -25,6 +33,9 @@ mod tests {
             vec_string_name: vec!["test_value".to_string(), "test_value2".to_string()],
             option_name_some: Some("x".to_string()),
             option_name_none: None,
+            substruct_name: SubStruct {
+                test: "substruct_string".to_string(),
+            },
         };
 
         let item = test.into_dynamo_item();
