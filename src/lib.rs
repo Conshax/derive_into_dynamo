@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use aws_sdk_dynamodb::model::AttributeValue;
 
 pub trait IntoAttributeValue {
@@ -55,6 +57,12 @@ impl<T: IntoAttributeValue> IntoAttributeValue for Vec<T> {
 impl IntoAttributeValue for bool {
     fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
         aws_sdk_dynamodb::model::AttributeValue::Bool(self)
+    }
+}
+
+impl IntoAttributeValue for HashSet<String> {
+    fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
+        aws_sdk_dynamodb::model::AttributeValue::Ss(self.into_iter().collect())
     }
 }
 

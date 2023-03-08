@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use aws_sdk_dynamodb;
     use derive_into_dynamo::IntoDynamoItem;
     use into_dynamo::IntoAttributeValue;
@@ -21,6 +23,7 @@ mod tests {
         option_name_some: Option<String>,
         option_name_none: Option<Vec<String>>,
         substruct_name: SubStruct,
+        string_set_name: HashSet<String>,
     }
 
     #[test]
@@ -36,6 +39,7 @@ mod tests {
             substruct_name: SubStruct {
                 test: "substruct_string".to_string(),
             },
+            string_set_name: HashSet::from_iter(["test_value".to_string()]),
         };
 
         let item = test.into_dynamo_item();
