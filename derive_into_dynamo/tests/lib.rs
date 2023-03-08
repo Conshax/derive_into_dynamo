@@ -42,7 +42,7 @@ mod tests {
         };
 
         let item = test.into_dynamo_item();
-        let test = TestStruct::from_dynamo_item(&item).unwrap();
+        let test = TestStruct::from_dynamo_item(item).unwrap();
 
         panic!("{test:?}")
     }

@@ -1,11 +1,16 @@
 use std::collections::{HashMap, HashSet};
 
+use aws_sdk_dynamodb::types::Blob;
 use thiserror::Error;
 
+pub enum IterableType {
+    Blob,
+    List,
+}
 pub trait IntoAttributeValue {
     fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue;
 
-    fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
+    fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
     where
         Self: Sized;
 }
@@ -26,15 +31,17 @@ macro_rules! number {
                 aws_sdk_dynamodb::model::AttributeValue::N(self.to_string())
             }
 
-            fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error> {
-                av.as_n()
-                    .map_err(|_| Error::WrongType)
-                    .and_then(|n| n.parse::<$ty>().map_err(|_| Error::Parse))
+            fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error> {
+                if let aws_sdk_dynamodb::model::AttributeValue::N(n) = av {
+                    n.parse::<$ty>().map_err(|_| Error::Parse)
+                } else {
+                    Err(Error::WrongType)
+                }
             }
         }
     };
 }
-number!(u8);
+
 number!(u16);
 number!(u32);
 number!(u64);
@@ -54,13 +61,15 @@ impl IntoAttributeValue for String {
         aws_sdk_dynamodb::model::AttributeValue::S(self)
     }
 
-    fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
+    fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
     where
         Self: Sized,
     {
-        av.as_s()
-            .map_err(|_| Error::WrongType)
-            .map(|s| s.to_string())
+        if let aws_sdk_dynamodb::model::AttributeValue::S(s) = av {
+            Ok(s)
+        } else {
+            Err(Error::WrongType)
+        }
     }
 }
 
@@ -73,14 +82,30 @@ impl<T: IntoAttributeValue> IntoAttributeValue for Option<T> {
         }
     }
 
-    fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
+    fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
     where
         Self: Sized,
     {
-        if av.is_null() {
+        if let aws_sdk_dynamodb::model::AttributeValue::Null(_) = av {
             Ok(None)
         } else {
-            Ok(Some(T::from_av(av)?))
+            T::from_av(av).map(Some)
+        }
+    }
+}
+
+impl IntoAttributeValue for Vec<u8> {
+    fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
+        aws_sdk_dynamodb::model::AttributeValue::B(Blob::new(self))
+    }
+
+    fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        match av {
+            aws_sdk_dynamodb::model::AttributeValue::B(blob) => Ok(blob.into_inner()),
+            _ => Err(Error::WrongType),
         }
     }
 }
@@ -92,13 +117,17 @@ impl<T: IntoAttributeValue> IntoAttributeValue for Vec<T> {
         )
     }
 
-    fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
+    fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
     where
         Self: Sized,
     {
-        av.as_l()
-            .map_err(|_| Error::WrongType)
-            .and_then(|l| l.iter().map(|item| T::from_av(item)).collect())
+        if let aws_sdk_dynamodb::model::AttributeValue::L(l) = av {
+            l.into_iter()
+                .map(|item| T::from_av(item))
+                .collect::<Result<Vec<_>, _>>()
+        } else {
+            Err(Error::WrongType)
+        }
     }
 }
 
@@ -107,11 +136,15 @@ impl IntoAttributeValue for bool {
         aws_sdk_dynamodb::model::AttributeValue::Bool(self)
     }
 
-    fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
+    fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
     where
         Self: Sized,
     {
-        av.as_bool().map_err(|_| Error::WrongType).map(|b| *b)
+        if let aws_sdk_dynamodb::model::AttributeValue::Bool(b) = av {
+            Ok(b)
+        } else {
+            Err(Error::WrongType)
+        }
     }
 }
 
@@ -124,15 +157,17 @@ impl<T: IntoAttributeValue> IntoAttributeValue for HashMap<String, T> {
         )
     }
 
-    fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
+    fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
     where
         Self: Sized,
     {
-        av.as_m().map_err(|_| Error::WrongType).and_then(|m| {
-            m.iter()
-                .map(|(key, value)| T::from_av(value).map(|value| (key.to_owned(), value)))
-                .collect()
-        })
+        if let aws_sdk_dynamodb::model::AttributeValue::M(m) = av {
+            m.into_iter()
+                .map(|(key, value)| T::from_av(value).map(|value| (key, value)))
+                .collect::<Result<HashMap<_, _>, _>>()
+        } else {
+            Err(Error::WrongType)
+        }
     }
 }
 
@@ -141,7 +176,7 @@ impl IntoAttributeValue for HashSet<String> {
         aws_sdk_dynamodb::model::AttributeValue::Ss(self.into_iter().collect())
     }
 
-    fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
+    fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
     where
         Self: Sized,
     {
@@ -186,7 +221,7 @@ mod tests {
             aws_sdk_dynamodb::model::AttributeValue::M(map)
         }
 
-        fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, crate::Error>
+        fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, crate::Error>
         where
             Self: Sized,
         {

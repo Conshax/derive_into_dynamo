@@ -39,9 +39,9 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
                 )
             }
 
-            pub fn from_dynamo_item(map: &std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue>) -> Result<Self, into_dynamo::Error> {
+            pub fn from_dynamo_item(mut map: std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue>) -> Result<Self, into_dynamo::Error> {
                 Ok(#struct_name {
-                    #(#field_names: #into_attribute_value::from_av(map.get(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
+                    #(#field_names: #into_attribute_value::from_av(map.remove(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
                 })
             }
         }
@@ -51,12 +51,14 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
                 aws_sdk_dynamodb::model::AttributeValue::M(self.into_dynamo_item())
             }
 
-            fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, into_dynamo::Error> {
-                av.as_m().map_err(|_| into_dynamo::Error::WrongType).and_then(|map| {
+            fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, into_dynamo::Error> {
+                if let aws_sdk_dynamodb::model::AttributeValue::M(mut map) = av {
                     Ok(#struct_name {
-                        #(#field_names: #into_attribute_value::from_av(map.get(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
+                        #(#field_names: #into_attribute_value::from_av(map.remove(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
                     })
-                })
+                } else {
+                    Err(into_dynamo::Error::WrongType)
+                }
             }
         }
 
