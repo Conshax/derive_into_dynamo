@@ -10,10 +10,12 @@ pub trait IntoAttributeValue {
         Self: Sized;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
+    #[error("Wrong type")]
     WrongType,
 
+    #[error("Could not parse")]
     Parse,
 }
 

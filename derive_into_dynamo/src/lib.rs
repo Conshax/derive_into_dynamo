@@ -28,6 +28,8 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
         .unzip();
 
     quote! {
+        pub use into_dynamo::*;
+
         impl #struct_name {
             pub fn into_dynamo_item(self) -> std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue> {
                 std::collections::HashMap::from_iter(

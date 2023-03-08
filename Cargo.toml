@@ -9,8 +9,6 @@ edition = "2021"
 aws-sdk-dynamodb = "0.24.0"
 thiserror = "1.0.39"
 
-derive_into_dynamo = { path = "derive_into_dynamo" }
-
 [workspace]
 members = [
     "derive_into_dynamo",
