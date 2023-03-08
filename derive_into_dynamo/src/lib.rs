@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{parse_macro_input, DeriveInput, Field, Ident};
 
 #[proc_macro_derive(IntoDynamoItem)]
@@ -27,8 +27,10 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
         })
         .unzip();
 
+    let into_attribute_value = format_ident!("IntoAttributeValue_{}", struct_name);
+
     quote! {
-        pub use into_dynamo::*;
+        use into_dynamo::IntoAttributeValue as #into_attribute_value;
 
         impl #struct_name {
             pub fn into_dynamo_item(self) -> std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue> {
@@ -39,12 +41,12 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
 
             pub fn from_dynamo_item(map: &std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue>) -> Result<Self, into_dynamo::Error> {
                 Ok(#struct_name {
-                    #(#field_names: IntoAttributeValue::from_av(map.get(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
+                    #(#field_names: #into_attribute_value::from_av(map.get(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
                 })
             }
         }
 
-        impl IntoAttributeValue for #struct_name {
+        impl #into_attribute_value for #struct_name {
             fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
                 aws_sdk_dynamodb::model::AttributeValue::M(self.into_dynamo_item())
             }
@@ -52,7 +54,7 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
             fn from_av(av: &aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, into_dynamo::Error> {
                 av.as_m().map_err(|_| into_dynamo::Error::WrongType).and_then(|map| {
                     Ok(#struct_name {
-                        #(#field_names: IntoAttributeValue::from_av(map.get(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
+                        #(#field_names: #into_attribute_value::from_av(map.get(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
                     })
                 })
             }

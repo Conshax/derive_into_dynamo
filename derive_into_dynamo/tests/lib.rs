@@ -4,7 +4,6 @@ mod tests {
 
     use aws_sdk_dynamodb;
     use derive_into_dynamo::IntoDynamoItem;
-    use into_dynamo::*;
 
     type FakeUsize = usize;
 
