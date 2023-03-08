@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-pub use derive_into_dynamo::IntoDynamoItem;
 use thiserror::Error;
 
 pub trait IntoAttributeValue {
