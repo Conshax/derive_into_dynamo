@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use aws_sdk_dynamodb::model::AttributeValue;
 
@@ -57,6 +57,16 @@ impl<T: IntoAttributeValue> IntoAttributeValue for Vec<T> {
 impl IntoAttributeValue for bool {
     fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
         aws_sdk_dynamodb::model::AttributeValue::Bool(self)
+    }
+}
+
+impl<T: IntoAttributeValue> IntoAttributeValue for HashMap<String, T> {
+    fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
+        aws_sdk_dynamodb::model::AttributeValue::M(
+            self.into_iter()
+                .map(|(key, value)| (key, value.into_av()))
+                .collect(),
+        )
     }
 }
 
