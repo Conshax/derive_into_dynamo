@@ -3,29 +3,33 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput, Field, GenericArgument, Ident};
 
-fn into_av(
-    ty: syn::Type,
-    field_name: &proc_macro2::TokenStream,
-) -> Option<proc_macro2::TokenStream> {
+fn into_av(ty: syn::Type, field_name: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
     match ty {
         syn::Type::Path(path) => {
             let path = path.path;
             let segment = path.segments.into_iter().next().unwrap();
             let ident = segment.ident;
+            
 
             match ident.to_string().as_str() {
-                "bool" => Some(quote!(aws_sdk_dynamodb::model::AttributeValue::Bool(#field_name))),
-                "String" => Some(quote!(aws_sdk_dynamodb::model::AttributeValue::S(#field_name))),
+                "bool" => quote!(aws_sdk_dynamodb::model::AttributeValue::Bool(#field_name)),
+                "String" => quote!(aws_sdk_dynamodb::model::AttributeValue::S(#field_name)),
                 "usize" | "isize" | "i8" | "i16" | "i32" | "i64" | "i128" | "u8" | "u16"
-                | "u32" | "u64" | "u128" | "f32" | "f64" => Some(
-                    quote!(aws_sdk_dynamodb::model::AttributeValue::N(#field_name.to_string())),
-                ),
+                | "u32" | "u64" | "u128" | "f32" | "f64" => {
+                    quote!(aws_sdk_dynamodb::model::AttributeValue::N(#field_name.to_string()))
+                }
                 "Option" => match segment.arguments {
                     syn::PathArguments::AngleBracketed(arguments) => {
                         match arguments.args.into_iter().next() {
                             Some(generic_argument) => match generic_argument {
                                 GenericArgument::Type(ty) => {
-                                    into_av(ty, &quote!(#field_name.unwrap()))
+                                    let inner = into_av(ty, &quote!(#field_name.unwrap()));
+
+                                    quote!(if #field_name.is_some() {
+                                        #inner
+                                    } else {
+                                        aws_sdk_dynamodb::model::AttributeValue::Null(true)
+                                    })
                                 }
                                 _ => todo!(),
                             },
@@ -42,9 +46,9 @@ fn into_av(
                                 GenericArgument::Type(ty) => {
                                     let vec_item = quote!(vec_item);
                                     let inner = into_av(ty, &vec_item);
-                                    Some(quote!(aws_sdk_dynamodb::model::AttributeValue::L(
+                                    quote!(aws_sdk_dynamodb::model::AttributeValue::L(
                                         #field_name.into_iter().map(|#vec_item| #inner).collect()
-                                    )))
+                                    ))
                                 }
                                 _ => todo!(),
                             },
@@ -72,7 +76,7 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
         syn::Data::Union(_) => todo!(),
     };
 
-    let fields = binding.into_iter().filter_map(|field| {
+    let fields = binding.into_iter().map(|field| {
         let Field { ident, ty, .. } = field;
 
         let field_name = ident.unwrap();
@@ -93,7 +97,10 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
             pub fn into_dynamo_item(self) -> std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue> {
                 std::collections::HashMap::from_iter(
                     [#(#fields),*]
+                    .into_iter()
+                    .filter(|(_, v)| !v.is_null())
                 )
+                
             }
         }
     }
