@@ -4,16 +4,16 @@ mod tests {
 
     use aws_sdk_dynamodb;
     use derive_into_dynamo::IntoDynamoItem;
-    use into_dynamo::IntoAttributeValue;
+    use into_dynamo::*;
 
     type FakeUsize = usize;
 
-    #[derive(IntoDynamoItem)]
+    #[derive(IntoDynamoItem, Debug)]
     pub struct SubStruct {
         test: String,
     }
 
-    #[derive(IntoDynamoItem)]
+    #[derive(IntoDynamoItem, Debug)]
     pub struct TestStruct {
         string_name: String,
         usize_name: FakeUsize,
@@ -43,7 +43,8 @@ mod tests {
         };
 
         let item = test.into_dynamo_item();
+        let test = TestStruct::from_dynamo_item(&item).unwrap();
 
-        panic!("{item:?}")
+        panic!("{test:?}")
     }
 }
