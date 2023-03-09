@@ -28,18 +28,20 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
         .unzip();
 
     let into_attribute_value = format_ident!("IntoAttributeValue_{}", struct_name);
+    let into_dynamo_item = format_ident!("IntoDynamoItem_{}", struct_name);
 
     quote! {
         use into_dynamo::IntoAttributeValue as #into_attribute_value;
+        use into_dynamo::IntoDynamoItem as #into_dynamo_item;
 
-        impl #struct_name {
-            pub fn into_dynamo_item(self) -> std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue> {
+        impl #into_dynamo_item for #struct_name {
+            fn into_item(self) -> std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue> {
                 std::collections::HashMap::from_iter(
                     [#((#field_name_strings, self.#field_names.into_av())),*]
                 )
             }
 
-            pub fn from_dynamo_item(mut map: std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue>) -> Result<Self, into_dynamo::Error> {
+            fn from_item(mut map: std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue>) -> Result<Self, into_dynamo::Error> {
                 Ok(#struct_name {
                     #(#field_names: #into_attribute_value::from_av(map.remove(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
                 })
@@ -48,7 +50,7 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
 
         impl #into_attribute_value for #struct_name {
             fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
-                aws_sdk_dynamodb::model::AttributeValue::M(self.into_dynamo_item())
+                aws_sdk_dynamodb::model::AttributeValue::M(self.into_item())
             }
 
             fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, into_dynamo::Error> {

@@ -41,8 +41,8 @@ mod tests {
             string_set_name: HashSet::from_iter(["test_value".to_string()]),
         };
 
-        let item = test.into_dynamo_item();
-        let test = TestStruct::from_dynamo_item(item).unwrap();
+        let item = test.into_item();
+        let test = TestStruct::from_item(item).unwrap();
 
         panic!("{test:?}")
     }

@@ -15,6 +15,16 @@ pub trait IntoAttributeValue {
         Self: Sized;
 }
 
+pub trait IntoDynamoItem {
+    fn into_item(self) -> HashMap<String, aws_sdk_dynamodb::model::AttributeValue>;
+
+    fn from_item(
+        item: HashMap<String, aws_sdk_dynamodb::model::AttributeValue>,
+    ) -> Result<Self, Error>
+    where
+        Self: Sized;
+}
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Wrong type")]
