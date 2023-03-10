@@ -13,6 +13,13 @@ mod tests {
     }
 
     #[derive(IntoDynamoItem, Debug)]
+    pub enum TestEnum {
+        Test1,
+        Test2,
+        Test3,
+    }
+
+    #[derive(IntoDynamoItem, Debug)]
     pub struct TestStruct {
         string_name: String,
         usize_name: FakeUsize,
@@ -23,6 +30,7 @@ mod tests {
         option_name_none: Option<Vec<String>>,
         substruct_name: SubStruct,
         string_set_name: HashSet<String>,
+        enum_name: TestEnum,
     }
 
     #[test]
@@ -39,6 +47,7 @@ mod tests {
                 test: "substruct_string".to_string(),
             },
             string_set_name: HashSet::from_iter(["test_value".to_string()]),
+            enum_name: TestEnum::Test1,
         };
 
         let item = test.into_item();
