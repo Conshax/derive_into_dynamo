@@ -1,19 +1,22 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, DeriveInput, Field, Ident};
+use syn::{parse_macro_input, DataStruct, DeriveInput, Field, Ident};
 
 #[proc_macro_derive(IntoDynamoItem)]
 pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    let struct_name = input.ident;
+    match input.data {
+        syn::Data::Struct(data) => derive_struct(input.ident, data),
+        syn::Data::Enum(_) => quote!(compiler_error("Enums not implemented yet")),
+        syn::Data::Union(_) => quote!(compiler_error("Unions not implemented yet")),
+    }
+    .into()
+}
 
-    let binding = match input.data {
-        syn::Data::Struct(data) => data.fields,
-        syn::Data::Enum(_) => todo!(),
-        syn::Data::Union(_) => todo!(),
-    };
+fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
+    let binding = data_struct.fields;
 
     let (field_name_strings, field_names): (Vec<TokenStream2>, Vec<Ident>) = binding
         .into_iter()
@@ -65,5 +68,4 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
         }
 
     }
-    .into()
 }
