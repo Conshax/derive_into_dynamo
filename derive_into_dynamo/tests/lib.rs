@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    pub type _Result = std::result::Result<u32, u32>; // to test result rewrite
 
-    use aws_sdk_dynamodb;
     use derive_into_dynamo::IntoDynamoItem;
 
     type FakeUsize = usize;
