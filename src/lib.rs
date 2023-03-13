@@ -181,6 +181,23 @@ impl<T: IntoAttributeValue> IntoAttributeValue for HashMap<String, T> {
     }
 }
 
+impl<T: IntoAttributeValue> IntoDynamoItem for HashMap<String, T> {
+    fn into_item(self) -> HashMap<String, aws_sdk_dynamodb::model::AttributeValue> {
+        self.into_iter().map(|(k, v)| (k, v.into_av())).collect()
+    }
+
+    fn from_item(
+        item: HashMap<String, aws_sdk_dynamodb::model::AttributeValue>,
+    ) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        item.into_iter()
+            .map(|(key, value)| T::from_av(value).map(|value| (key, value)))
+            .collect::<Result<HashMap<_, _>, _>>()
+    }
+}
+
 impl IntoAttributeValue for HashSet<String> {
     fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
         aws_sdk_dynamodb::model::AttributeValue::Ss(self.into_iter().collect())
