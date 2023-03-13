@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
-    use aws_sdk_dynamodb;
     use derive_into_dynamo::IntoDynamoItem;
 
     type FakeUsize = usize;
@@ -31,6 +30,7 @@ mod tests {
         substruct_name: SubStruct,
         string_set_name: HashSet<String>,
         enum_name: TestEnum,
+        hash_map_name: HashMap<String, String>,
     }
 
     #[test]
@@ -48,11 +48,12 @@ mod tests {
             },
             string_set_name: HashSet::from_iter(["test_value".to_string()]),
             enum_name: TestEnum::Test1,
+            hash_map_name: HashMap::from_iter([("test_key".to_string(), "test_value".to_string())]),
         };
 
         let item = test.into_item();
-        let test = TestStruct::from_item(item).unwrap();
+        //let test = TestStruct::from_item(item).unwrap();
 
-        panic!("{test:?}")
+        panic!("{item:?}")
     }
 }
