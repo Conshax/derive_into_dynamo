@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroUsize,
+};
 
 use aws_sdk_dynamodb::types::Blob;
 use thiserror::Error;
@@ -210,5 +213,22 @@ impl IntoAttributeValue for HashSet<String> {
         av.as_ss()
             .map_err(|_| Error::WrongType)
             .map(|ss| ss.iter().map(|s| s.to_owned()).collect())
+    }
+}
+
+impl IntoAttributeValue for NonZeroUsize {
+    fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
+        aws_sdk_dynamodb::model::AttributeValue::N(self.get().to_string())
+    }
+
+    fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        if let aws_sdk_dynamodb::model::AttributeValue::N(n) = av {
+            n.parse::<NonZeroUsize>().map_err(|_| Error::WrongType)
+        } else {
+            Err(Error::WrongType)
+        }
     }
 }
