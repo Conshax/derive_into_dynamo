@@ -20,6 +20,7 @@ mod tests {
 
     #[derive(IntoDynamoItem, Debug)]
     pub struct TestStruct {
+        #[dynamo(default)]
         string_name: String,
         usize_name: FakeUsize,
         isize_name: isize,
@@ -51,9 +52,11 @@ mod tests {
             hash_map_name: HashMap::from_iter([("test_key".to_string(), "test_value".to_string())]),
         };
 
-        let item = test.into_item();
-        //let test = TestStruct::from_item(item).unwrap();
+        let mut item = test.into_item();
+        item.remove("string_name");
 
-        panic!("{item:?}")
+        let test = TestStruct::from_item(item).unwrap();
+
+        panic!("{test:?}")
     }
 }

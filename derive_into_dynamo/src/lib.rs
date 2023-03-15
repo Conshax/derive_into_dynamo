@@ -3,7 +3,7 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput, Field, Ident};
 
-#[proc_macro_derive(IntoDynamoItem)]
+#[proc_macro_derive(IntoDynamoItem, attributes(dynamo))]
 pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -64,13 +64,59 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
     )
 }
 
+fn derive_from_field_line(field: &Field) -> TokenStream2 {
+    let Field {
+        ident,
+        attrs,
+        vis: _,
+        colon_token: _,
+        ty,
+    } = field;
+
+    let default = if let Some(attr) = attrs.iter().find(|attr| attr.path.is_ident("dynamo")) {
+        match attr.parse_meta() {
+            Ok(meta) => match meta {
+                syn::Meta::List(l) => match l.nested.first() {
+                    Some(syn::NestedMeta::Meta(meta)) => meta.path().is_ident("default"),
+                    _ => false,
+                },
+                _ => false,
+            },
+            Err(_) => false,
+        }
+    } else {
+        false
+    };
+
+    let field_name = ident.to_owned().unwrap();
+    let field_name_string = field_name.to_string();
+
+    if default {
+        quote! {
+            #field_name: map.remove(#field_name_string).map(into_dynamo::IntoAttributeValue::from_av).transpose()?.unwrap_or_default()
+        }
+    } else {
+        quote! {
+            #field_name: into_dynamo::IntoAttributeValue::from_av(map.remove(#field_name_string).ok_or(into_dynamo::Error::WrongType(format!("Missing field {}", #field_name_string)))?)?
+        }
+    }
+}
+
 fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
     let binding = data_struct.fields;
+
+    let field_lines: Vec<_> = binding.iter().map(derive_from_field_line).collect();
 
     let (field_name_strings, field_names): (Vec<TokenStream2>, Vec<Ident>) = binding
         .into_iter()
         .map(|field| {
-            let Field { ident, .. } = field;
+            let Field {
+                ident,
+                attrs: _,
+                vis: _,
+                colon_token: _,
+                ty: _,
+            } = field;
 
             let field_name = ident.unwrap();
             let field_name_string = field_name.to_string();
@@ -95,7 +141,7 @@ fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
 
             fn from_item(mut map: std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue>) -> std::result::Result<Self, into_dynamo::Error> {
                 Ok(#struct_name {
-                    #(#field_names: #into_attribute_value::from_av(map.remove(&#field_name_strings).ok_or(into_dynamo::Error::WrongType(format!("Missing field {}", #field_name_strings)))?)?),*
+                    #(#field_lines),*
                 })
             }
         }
@@ -108,7 +154,7 @@ fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
             fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> std::result::Result<Self, into_dynamo::Error> {
                 if let aws_sdk_dynamodb::model::AttributeValue::M(mut map) = av {
                     Ok(#struct_name {
-                        #(#field_names: #into_attribute_value::from_av(map.remove(&#field_name_strings).ok_or(into_dynamo::Error::WrongType(format!("Missing field {}", #field_name_strings)))?)?),*
+                        #(#field_lines),*
                     })
                 } else {
                     Err(into_dynamo::Error::WrongType(format!("Expected M, got {:?}", av)))
