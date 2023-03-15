@@ -70,7 +70,7 @@ fn derive_from_field_line(field: &Field) -> TokenStream2 {
         attrs,
         vis: _,
         colon_token: _,
-        ty,
+        ty: _,
     } = field;
 
     let default = if let Some(attr) = attrs.iter().find(|attr| attr.path.is_ident("dynamo")) {
