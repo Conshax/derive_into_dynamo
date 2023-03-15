@@ -31,10 +31,7 @@ pub trait IntoDynamoItem {
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Wrong type")]
-    WrongType,
-
-    #[error("Could not parse")]
-    Parse,
+    WrongType(String),
 }
 
 macro_rules! number {
@@ -46,9 +43,11 @@ macro_rules! number {
 
             fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error> {
                 if let aws_sdk_dynamodb::model::AttributeValue::N(n) = av {
-                    n.parse::<$ty>().map_err(|_| Error::Parse)
+                    n.parse::<$ty>().map_err(|e| {
+                        Error::WrongType(format!("Could not parse number, parse error {:?}", e))
+                    })
                 } else {
-                    Err(Error::WrongType)
+                    Err(Error::WrongType(format!("Expected N, got {:?}", av)))
                 }
             }
         }
@@ -81,7 +80,7 @@ impl IntoAttributeValue for String {
         if let aws_sdk_dynamodb::model::AttributeValue::S(s) = av {
             Ok(s)
         } else {
-            Err(Error::WrongType)
+            Err(Error::WrongType(format!("Expected S, got {:?}", av)))
         }
     }
 }
@@ -118,7 +117,7 @@ impl IntoAttributeValue for Vec<u8> {
     {
         match av {
             aws_sdk_dynamodb::model::AttributeValue::B(blob) => Ok(blob.into_inner()),
-            _ => Err(Error::WrongType),
+            _ => Err(Error::WrongType(format!("Expected B, got {:?}", av))),
         }
     }
 }
@@ -139,7 +138,7 @@ impl<T: IntoAttributeValue> IntoAttributeValue for Vec<T> {
                 .map(|item| T::from_av(item))
                 .collect::<Result<Vec<_>, _>>()
         } else {
-            Err(Error::WrongType)
+            Err(Error::WrongType(format!("Expected L, got {:?}", av)))
         }
     }
 }
@@ -156,7 +155,7 @@ impl IntoAttributeValue for bool {
         if let aws_sdk_dynamodb::model::AttributeValue::Bool(b) = av {
             Ok(b)
         } else {
-            Err(Error::WrongType)
+            Err(Error::WrongType(format!("Expected Bool, got {:?}", av)))
         }
     }
 }
@@ -179,7 +178,7 @@ impl<T: IntoAttributeValue> IntoAttributeValue for HashMap<String, T> {
                 .map(|(key, value)| T::from_av(value).map(|value| (key, value)))
                 .collect::<Result<HashMap<_, _>, _>>()
         } else {
-            Err(Error::WrongType)
+            Err(Error::WrongType(format!("Expected M, got {:?}", av)))
         }
     }
 }
@@ -211,7 +210,7 @@ impl IntoAttributeValue for HashSet<String> {
         Self: Sized,
     {
         av.as_ss()
-            .map_err(|_| Error::WrongType)
+            .map_err(|_| Error::WrongType(format!("Expected SS, got {:?}", av)))
             .map(|ss| ss.iter().map(|s| s.to_owned()).collect())
     }
 }
@@ -226,9 +225,10 @@ impl IntoAttributeValue for NonZeroUsize {
         Self: Sized,
     {
         if let aws_sdk_dynamodb::model::AttributeValue::N(n) = av {
-            n.parse::<NonZeroUsize>().map_err(|_| Error::WrongType)
+            n.parse::<NonZeroUsize>()
+                .map_err(|e| Error::WrongType(format!("Expected N>0, parse error: {e:?}",)))
         } else {
-            Err(Error::WrongType)
+            Err(Error::WrongType(format!("Expected N, got {:?}", av)))
         }
     }
 }

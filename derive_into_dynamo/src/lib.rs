@@ -53,10 +53,10 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
                 if let aws_sdk_dynamodb::model::AttributeValue::S(s) = av {
                     match s.as_str() {
                         #(#variants_string => Ok(#enum_name::#variants),)*
-                        _ => Err(into_dynamo::Error::WrongType)
+                        _ => Err(into_dynamo::Error::WrongType(format!("Expected one of {:?}, got {:?}", [#(#variants_string),*], s)))
                     }
                 } else {
-                    Err(into_dynamo::Error::WrongType)
+                    Err(into_dynamo::Error::WrongType(format!("Expected S, got {:?}", av)))
                 }
             }
         }
@@ -95,7 +95,7 @@ fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
 
             fn from_item(mut map: std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue>) -> std::result::Result<Self, into_dynamo::Error> {
                 Ok(#struct_name {
-                    #(#field_names: #into_attribute_value::from_av(map.remove(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
+                    #(#field_names: #into_attribute_value::from_av(map.remove(&#field_name_strings).ok_or(into_dynamo::Error::WrongType(format!("Missing field {}", #field_name_strings)))?)?),*
                 })
             }
         }
@@ -108,10 +108,10 @@ fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
             fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> std::result::Result<Self, into_dynamo::Error> {
                 if let aws_sdk_dynamodb::model::AttributeValue::M(mut map) = av {
                     Ok(#struct_name {
-                        #(#field_names: #into_attribute_value::from_av(map.remove(&#field_name_strings).ok_or(into_dynamo::Error::WrongType)?)?),*
+                        #(#field_names: #into_attribute_value::from_av(map.remove(&#field_name_strings).ok_or(into_dynamo::Error::WrongType(format!("Missing field {}", #field_name_strings)))?)?),*
                     })
                 } else {
-                    Err(into_dynamo::Error::WrongType)
+                    Err(into_dynamo::Error::WrongType(format!("Expected M, got {:?}", av)))
                 }
             }
         }
