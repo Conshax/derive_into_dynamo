@@ -30,7 +30,7 @@ pub trait IntoDynamoItem {
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Wrong type")]
+    #[error("Wrong type {0}")]
     WrongType(String),
 }
 
