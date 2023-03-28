@@ -235,8 +235,8 @@ impl IntoAttributeValue for NonZeroUsize {
 
 impl IntoAttributeValue for (u64, String) {
     fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
-        let first = 0.into_av();
-        let second = 1.into_av();
+        let first = self.0.into_av();
+        let second = self.1.into_av();
 
         aws_sdk_dynamodb::model::AttributeValue::L(vec![first, second])
     }
