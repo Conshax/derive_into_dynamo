@@ -232,3 +232,32 @@ impl IntoAttributeValue for NonZeroUsize {
         }
     }
 }
+
+impl IntoAttributeValue for (u64, String) {
+    fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
+        let first = 0.into_av();
+        let second = 1.into_av();
+
+        aws_sdk_dynamodb::model::AttributeValue::L(vec![first, second])
+    }
+
+    fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        if let aws_sdk_dynamodb::model::AttributeValue::L(mut l) = av {
+            let second = String::from_av(
+                l.pop()
+                    .ok_or(Error::WrongType("Expected L with 2 elements".into()))?,
+            )?;
+            let first = u64::from_av(
+                l.pop()
+                    .ok_or(Error::WrongType("Expected L with 2 elements".into()))?,
+            )?;
+
+            Ok((first, second))
+        } else {
+            Err(Error::WrongType(format!("Expected L, got {:?}", av)))
+        }
+    }
+}
