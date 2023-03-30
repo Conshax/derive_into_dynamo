@@ -202,16 +202,25 @@ impl<T: IntoAttributeValue> IntoDynamoItem for HashMap<String, T> {
 
 impl IntoAttributeValue for HashSet<String> {
     fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
-        aws_sdk_dynamodb::model::AttributeValue::Ss(self.into_iter().collect())
+        if self.is_empty() {
+            aws_sdk_dynamodb::model::AttributeValue::Null(true)
+        } else {
+            aws_sdk_dynamodb::model::AttributeValue::Ss(self.into_iter().collect())
+        }
     }
 
     fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> Result<Self, Error>
     where
         Self: Sized,
     {
-        av.as_ss()
-            .map_err(|_| Error::WrongType(format!("Expected SS, got {:?}", av)))
-            .map(|ss| ss.iter().map(|s| s.to_owned()).collect())
+        match av {
+            aws_sdk_dynamodb::model::AttributeValue::Ss(ss) => Ok(ss.into_iter().collect()),
+            aws_sdk_dynamodb::model::AttributeValue::Null(_) => Ok(HashSet::new()),
+            _ => Err(Error::WrongType(format!(
+                "Expected SS or Null, got {:?}",
+                av
+            ))),
+        }
     }
 }
 
