@@ -43,14 +43,14 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
         use into_dynamo::IntoAttributeValue as #into_attribute_value;
 
         impl #into_attribute_value for #enum_name {
-            fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
+            fn into_av(self) -> aws_sdk_dynamodb::types::AttributeValue {
                 match self {
-                    #(#enum_name::#variants => aws_sdk_dynamodb::model::AttributeValue::S(#variants_string.to_string())),*
+                    #(#enum_name::#variants => aws_sdk_dynamodb::types::AttributeValue::S(#variants_string.to_string())),*
                 }
             }
 
-            fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> std::result::Result<Self, into_dynamo::Error> {
-                if let aws_sdk_dynamodb::model::AttributeValue::S(s) = av {
+            fn from_av(av: aws_sdk_dynamodb::types::AttributeValue) -> std::result::Result<Self, into_dynamo::Error> {
+                if let aws_sdk_dynamodb::types::AttributeValue::S(s) = av {
                     match s.as_str() {
                         #(#variants_string => Ok(#enum_name::#variants),)*
                         _ => Err(into_dynamo::Error::WrongType(format!("Expected one of {:?}, got {:?}", [#(#variants_string),*], s)))
@@ -133,13 +133,13 @@ fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
         use into_dynamo::IntoDynamoItem as #into_dynamo_item;
 
         impl #into_dynamo_item for #struct_name {
-            fn into_item(self) -> std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue> {
+            fn into_item(self) -> std::collections::HashMap<String, aws_sdk_dynamodb::types::AttributeValue> {
                 std::collections::HashMap::from_iter(
                     [#((#field_name_strings, self.#field_names.into_av())),*]
                 )
             }
 
-            fn from_item(mut map: std::collections::HashMap<String, aws_sdk_dynamodb::model::AttributeValue>) -> std::result::Result<Self, into_dynamo::Error> {
+            fn from_item(mut map: std::collections::HashMap<String, aws_sdk_dynamodb::types::AttributeValue>) -> std::result::Result<Self, into_dynamo::Error> {
                 Ok(#struct_name {
                     #(#field_lines),*
                 })
@@ -147,12 +147,12 @@ fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
         }
 
         impl #into_attribute_value for #struct_name {
-            fn into_av(self) -> aws_sdk_dynamodb::model::AttributeValue {
-                aws_sdk_dynamodb::model::AttributeValue::M(self.into_item())
+            fn into_av(self) -> aws_sdk_dynamodb::types::AttributeValue {
+                aws_sdk_dynamodb::types::AttributeValue::M(self.into_item())
             }
 
-            fn from_av(av: aws_sdk_dynamodb::model::AttributeValue) -> std::result::Result<Self, into_dynamo::Error> {
-                if let aws_sdk_dynamodb::model::AttributeValue::M(mut map) = av {
+            fn from_av(av: aws_sdk_dynamodb::types::AttributeValue) -> std::result::Result<Self, into_dynamo::Error> {
+                if let aws_sdk_dynamodb::types::AttributeValue::M(mut map) = av {
                     Ok(#struct_name {
                         #(#field_lines),*
                     })
