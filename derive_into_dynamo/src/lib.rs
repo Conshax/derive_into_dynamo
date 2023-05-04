@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput, Field, Ident};
+use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput, Field, Ident, Type};
 
 #[proc_macro_derive(IntoDynamoItem, attributes(dynamo))]
 pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
@@ -15,21 +15,97 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
     .into()
 }
 
+struct NamedVariant {
+    name: Ident,
+    fields: Vec<NamedField>,
+}
+
+struct NamedField {
+    type_: Type,
+    name: Ident,
+}
+
+struct UnnamedVariant {
+    name: Ident,
+    fields: Vec<UnnamedField>,
+}
+
+struct UnnamedField {
+    type_: Type,
+}
+
 fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
-    let (variants_without_fields, _): (Vec<_>, Vec<_>) = data
-        .variants
-        .into_iter()
-        .partition(|variant| variant.fields.is_empty());
+    let (named_variants, unnamed_variants, unit_variants): (Vec<_>, Vec<_>, Vec<_>) =
+        data.variants.into_iter().fold(
+            (Vec::new(), Vec::new(), Vec::new()),
+            |(mut named_variants, mut unnamed_variants, mut unit_variants), variant| {
+                match variant.fields {
+                    syn::Fields::Named(fields) => {
+                        named_variants.push(NamedVariant {
+                            name: variant.ident,
+                            fields: fields
+                                .named
+                                .into_iter()
+                                .map(|field| NamedField {
+                                    type_: field.ty,
+                                    name: field.ident.unwrap(),
+                                })
+                                .collect(),
+                        });
+                    }
+                    syn::Fields::Unnamed(fields) => {
+                        unnamed_variants.push(UnnamedVariant {
+                            name: variant.ident,
+                            fields: fields
+                                .unnamed
+                                .into_iter()
+                                .map(|field| UnnamedField { type_: field.ty })
+                                .collect(),
+                        });
+                    }
+                    syn::Fields::Unit => {
+                        unit_variants.push(variant.ident);
+                    }
+                };
+                (named_variants, unnamed_variants, unit_variants)
+            },
+        );
 
-    let variants_without_fields: Vec<_> = variants_without_fields
-        .into_iter()
-        .map(|variant| variant.ident)
-        .collect();
-
-    let variants_string: Vec<_> = variants_without_fields
+    let unit_variants_string: Vec<_> = unit_variants
         .iter()
         .map(|variant| variant.to_string())
         .collect();
+
+    let (named_into, named_from): (Vec<_>, Vec<_>) = named_variants
+        .iter()
+        .map(|variant| {
+            let name = variant.name.clone();
+            let name_string = name.to_string();
+            let field_names: Vec<_> = variant.fields.iter().map(|field| field.name.clone()).collect();
+            let field_name_strings: Vec<_> = variant.fields.iter().map(|field| field.name.to_string()).collect();
+            let field_types: Vec<_> = variant.fields.iter().map(|field| field.type_.clone()).collect();
+
+            (quote!(
+                #enum_name::#name { #(#field_names),* } => aws_sdk_dynamodb::types::AttributeValue::M(
+                    std::collections::HashMap::from_iter(
+                        [#((#field_name_strings.to_string(), #field_names.into_av())),*,
+                            (String::from("dynamo_enum_variant_name"), aws_sdk_dynamodb::types::AttributeValue::S(#name_string.to_string()))
+                        ]
+                ))
+            ),
+            quote!(
+                #name_string => Ok(#enum_name::#name {
+                    #(#field_names: into_dynamo::IntoAttributeValue::from_av(map.remove(#field_name_strings).ok_or(into_dynamo::Error::WrongType(format!("Missing field {}", #field_name_strings)))?)?),*
+                })
+            )
+        )
+        })
+        .unzip();
+
+    let named_variant_strings = named_variants
+        .iter()
+        .map(|variant| variant.name.to_string())
+        .collect::<Vec<_>>();
 
     let into_attribute_value = format_ident!("IntoAttributeValue_{}", enum_name);
 
@@ -39,18 +115,29 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
         impl #into_attribute_value for #enum_name {
             fn into_av(self) -> aws_sdk_dynamodb::types::AttributeValue {
                 match self {
-                    #(#enum_name::#variants_without_fields => aws_sdk_dynamodb::types::AttributeValue::S(#variants_string.to_string())),*
+                    #(#enum_name::#unit_variants => aws_sdk_dynamodb::types::AttributeValue::S(#unit_variants_string.to_string())),*,
+                    #(#named_into),*
                 }
             }
 
             fn from_av(av: aws_sdk_dynamodb::types::AttributeValue) -> std::result::Result<Self, into_dynamo::Error> {
-                if let aws_sdk_dynamodb::types::AttributeValue::S(s) = av {
-                    match s.as_str() {
-                        #(#variants_string => Ok(#enum_name::#variants_without_fields),)*
-                        _ => Err(into_dynamo::Error::WrongType(format!("Expected one of {:?}, got {:?}", [#(#variants_string),*], s)))
+                match av {
+                    aws_sdk_dynamodb::types::AttributeValue::S(s) => {
+                        match s.as_str() {
+                            #(#unit_variants_string => Ok(#enum_name::#unit_variants),)*
+                            _ => Err(into_dynamo::Error::WrongType(format!("Expected one of {:?}, got {:?}", [#(#unit_variants_string),*], s)))
+                        }
                     }
-                } else {
-                    Err(into_dynamo::Error::WrongType(format!("Expected S, got {:?}", av)))
+                    aws_sdk_dynamodb::types::AttributeValue::M(mut map) => {
+                        match map.remove("dynamo_enum_variant_name") {
+                            Some(aws_sdk_dynamodb::types::AttributeValue::S(s)) => match s.as_str() {
+                                #(#named_from),*,
+                                _ => Err(into_dynamo::Error::WrongType(format!("Expected one of {:?}, got {:?}", [#(#named_variant_strings),*], s)))
+                            },
+                            av => Err(into_dynamo::Error::WrongType(format!("Expected S for dynamo_enum_variant_name, got {:?}", av)))
+                        }
+                    }
+                    _ => Err(into_dynamo::Error::WrongType(format!("Expected S, got {:?}", av)))
                 }
             }
         }

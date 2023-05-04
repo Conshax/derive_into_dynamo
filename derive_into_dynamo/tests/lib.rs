@@ -17,6 +17,9 @@ mod tests {
         #[default]
         Test2,
         Test3,
+        TestStruct {
+            test: String,
+        },
     }
 
     #[derive(IntoDynamoItem, Debug)]
@@ -50,15 +53,17 @@ mod tests {
                 test: "substruct_string".to_string(),
             },
             string_set_name: HashSet::from_iter(["test_value".to_string()]),
-            enum_name: TestEnum::Test1,
+            enum_name: TestEnum::TestStruct {
+                test: "abc".to_string(),
+            },
             hash_map_name: HashMap::from_iter([("test_key".to_string(), "test_value".to_string())]),
         };
 
         let mut item = test.into_item();
-        item.remove("enum_name");
+        //item.remove("enum_name");
 
         let test = TestStruct::from_item(item).unwrap();
 
-        panic!("{test:?}")
+        panic!("{test:?}");
     }
 }
