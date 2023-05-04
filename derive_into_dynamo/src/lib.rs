@@ -21,7 +21,6 @@ struct NamedVariant {
 }
 
 struct NamedField {
-    type_: Type,
     name: Ident,
 }
 
@@ -47,7 +46,6 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
                                 .named
                                 .into_iter()
                                 .map(|field| NamedField {
-                                    type_: field.ty,
                                     name: field.ident.unwrap(),
                                 })
                                 .collect(),
@@ -76,14 +74,23 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
         .map(|variant| variant.to_string())
         .collect();
 
-    let (named_into, named_from): (Vec<_>, Vec<_>) = named_variants
+    let named_variant_strings = named_variants
         .iter()
+        .map(|variant| variant.name.to_string())
+        .collect::<Vec<_>>();
+
+    let unnamed_variant_strings = named_variants
+        .iter()
+        .map(|variant| variant.name.to_string())
+        .collect::<Vec<_>>();
+
+    let (named_into, named_from): (Vec<_>, Vec<_>) = named_variants
+        .into_iter()
         .map(|variant| {
-            let name = variant.name.clone();
+            let name = variant.name;
             let name_string = name.to_string();
-            let field_names: Vec<_> = variant.fields.iter().map(|field| field.name.clone()).collect();
-            let field_name_strings: Vec<_> = variant.fields.iter().map(|field| field.name.to_string()).collect();
-            let field_types: Vec<_> = variant.fields.iter().map(|field| field.type_.clone()).collect();
+            let field_names: Vec<_> = variant.fields.into_iter().map(|field| field.name).collect();
+            let field_name_strings: Vec<_> = field_names.iter().map(|field| field.to_string()).collect();
 
             (quote!(
                 #enum_name::#name { #(#field_names),* } => aws_sdk_dynamodb::types::AttributeValue::M(
@@ -102,10 +109,30 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
         })
         .unzip();
 
-    let named_variant_strings = named_variants
-        .iter()
-        .map(|variant| variant.name.to_string())
-        .collect::<Vec<_>>();
+    let (unnamed_into, unnamed_from): (Vec<_>, Vec<_>) = unnamed_variants.into_iter().map(|variant|
+        {
+            let name = variant.name;
+            let name_string = name.to_string();
+            let field_types: Vec<_> = variant.fields.into_iter().map(|field| field.type_).collect();
+            let field_names: Vec<_> = (0..field_types.len()).map(|i| format_ident!("field_{}", i)).collect();
+            let field_name_strings: Vec<_> = field_names.iter().map(|field| field.to_string()).collect();
+
+            (quote!(
+                #enum_name::#name(#(#field_names),*) => aws_sdk_dynamodb::types::AttributeValue::M(
+                    std::collections::HashMap::from_iter(
+                        [#((#field_name_strings.to_string(), #field_names.into_av())),*,
+                            (String::from("dynamo_enum_variant_name"), aws_sdk_dynamodb::types::AttributeValue::S(#name_string.to_string()))
+                        ]
+                ))
+            ),
+            quote!(
+                #name_string => Ok(#enum_name::#name(
+                    #(into_dynamo::IntoAttributeValue::from_av(map.remove(#field_name_strings).ok_or(into_dynamo::Error::WrongType(format!("Missing field {}", #field_name_strings)))?)?),*
+                ))
+            )
+        )
+        }
+    ).unzip();
 
     let into_attribute_value = format_ident!("IntoAttributeValue_{}", enum_name);
 
@@ -115,8 +142,9 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
         impl #into_attribute_value for #enum_name {
             fn into_av(self) -> aws_sdk_dynamodb::types::AttributeValue {
                 match self {
-                    #(#enum_name::#unit_variants => aws_sdk_dynamodb::types::AttributeValue::S(#unit_variants_string.to_string())),*,
-                    #(#named_into),*
+                    #(#enum_name::#unit_variants => aws_sdk_dynamodb::types::AttributeValue::S(#unit_variants_string.to_string()),)*
+                    #(#named_into,)*
+                    #(#unnamed_into),*
                 }
             }
 
@@ -131,8 +159,9 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
                     aws_sdk_dynamodb::types::AttributeValue::M(mut map) => {
                         match map.remove("dynamo_enum_variant_name") {
                             Some(aws_sdk_dynamodb::types::AttributeValue::S(s)) => match s.as_str() {
-                                #(#named_from),*,
-                                _ => Err(into_dynamo::Error::WrongType(format!("Expected one of {:?}, got {:?}", [#(#named_variant_strings),*], s)))
+                                #(#named_from,)*
+                                #(#unnamed_from,)*
+                                _ => Err(into_dynamo::Error::WrongType(format!("Expected one of {:?}, got {:?}", [#(#named_variant_strings,)*#(#unnamed_variant_strings),*], s)))
                             },
                             av => Err(into_dynamo::Error::WrongType(format!("Expected S for dynamo_enum_variant_name, got {:?}", av)))
                         }
