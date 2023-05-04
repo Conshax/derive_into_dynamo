@@ -11,9 +11,10 @@ mod tests {
         test: String,
     }
 
-    #[derive(IntoDynamoItem, Debug)]
+    #[derive(IntoDynamoItem, Debug, Default)]
     pub enum TestEnum {
         Test1,
+        #[default]
         Test2,
         Test3,
     }
@@ -30,6 +31,7 @@ mod tests {
         option_name_none: Option<Vec<String>>,
         substruct_name: SubStruct,
         string_set_name: HashSet<String>,
+        #[dynamo(default)]
         enum_name: TestEnum,
         hash_map_name: HashMap<String, String>,
     }
@@ -53,7 +55,7 @@ mod tests {
         };
 
         let mut item = test.into_item();
-        item.remove("string_name");
+        item.remove("enum_name");
 
         let test = TestStruct::from_item(item).unwrap();
 

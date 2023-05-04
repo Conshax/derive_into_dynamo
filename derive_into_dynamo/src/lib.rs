@@ -16,26 +16,20 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
 }
 
 fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
-    let variants: Result<Vec<_>, TokenStream2> = data
+    let (variants_without_fields, _): (Vec<_>, Vec<_>) = data
         .variants
         .into_iter()
-        .map(|variant| {
-            if !variant.fields.is_empty() {
-                Err(quote!(compiler_error!(
-                    "Variants of enum must not have no fields, with fields have to be implemented manually for now"
-                )))
-            } else {
-                Ok(variant.ident)
-            }
-        })
+        .partition(|variant| variant.fields.is_empty());
+
+    let variants_without_fields: Vec<_> = variants_without_fields
+        .into_iter()
+        .map(|variant| variant.ident)
         .collect();
 
-    let variants = match variants {
-        Ok(variants) => variants,
-        Err(err) => return err,
-    };
-
-    let variants_string: Vec<_> = variants.iter().map(|variant| variant.to_string()).collect();
+    let variants_string: Vec<_> = variants_without_fields
+        .iter()
+        .map(|variant| variant.to_string())
+        .collect();
 
     let into_attribute_value = format_ident!("IntoAttributeValue_{}", enum_name);
 
@@ -45,14 +39,14 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
         impl #into_attribute_value for #enum_name {
             fn into_av(self) -> aws_sdk_dynamodb::types::AttributeValue {
                 match self {
-                    #(#enum_name::#variants => aws_sdk_dynamodb::types::AttributeValue::S(#variants_string.to_string())),*
+                    #(#enum_name::#variants_without_fields => aws_sdk_dynamodb::types::AttributeValue::S(#variants_string.to_string())),*
                 }
             }
 
             fn from_av(av: aws_sdk_dynamodb::types::AttributeValue) -> std::result::Result<Self, into_dynamo::Error> {
                 if let aws_sdk_dynamodb::types::AttributeValue::S(s) = av {
                     match s.as_str() {
-                        #(#variants_string => Ok(#enum_name::#variants),)*
+                        #(#variants_string => Ok(#enum_name::#variants_without_fields),)*
                         _ => Err(into_dynamo::Error::WrongType(format!("Expected one of {:?}, got {:?}", [#(#variants_string),*], s)))
                     }
                 } else {
