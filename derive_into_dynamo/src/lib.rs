@@ -69,20 +69,10 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
             },
         );
 
-    let unit_variants_string: Vec<_> = unit_variants
+    let unit_variants_string: Vec<String> = unit_variants
         .iter()
         .map(|variant| variant.to_string())
         .collect();
-
-    let named_variant_strings = named_variants
-        .iter()
-        .map(|variant| variant.name.to_string())
-        .collect::<Vec<_>>();
-
-    let unnamed_variant_strings = named_variants
-        .iter()
-        .map(|variant| variant.name.to_string())
-        .collect::<Vec<_>>();
 
     let (named_into, named_from): (Vec<_>, Vec<_>) = named_variants
         .into_iter()
@@ -136,6 +126,7 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
 
     let into_attribute_value = format_ident!("IntoAttributeValue_{}", enum_name);
 
+    let enum_name_string = enum_name.to_string();
     quote!(
         use into_dynamo::IntoAttributeValue as #into_attribute_value;
 
@@ -153,7 +144,7 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
                     aws_sdk_dynamodb::types::AttributeValue::S(s) => {
                         match s.as_str() {
                             #(#unit_variants_string => Ok(#enum_name::#unit_variants),)*
-                            _ => Err(into_dynamo::Error::WrongType(format!("Expected one of {:?}, got {:?}", [#(#unit_variants_string),*], s)))
+                            _ => Err(into_dynamo::Error::WrongType(format!("Expected variant of enum {}, got {:?}", #enum_name_string, s)))
                         }
                     }
                     aws_sdk_dynamodb::types::AttributeValue::M(mut map) => {
@@ -161,7 +152,7 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
                             Some(aws_sdk_dynamodb::types::AttributeValue::S(s)) => match s.as_str() {
                                 #(#named_from,)*
                                 #(#unnamed_from,)*
-                                _ => Err(into_dynamo::Error::WrongType(format!("Expected one of {:?}, got {:?}", [#(#named_variant_strings,)*#(#unnamed_variant_strings),*], s)))
+                                _ => Err(into_dynamo::Error::WrongType(format!("Expected variant of enum {}, got {:?}", #enum_name_string, s)))
                             },
                             av => Err(into_dynamo::Error::WrongType(format!("Expected S for dynamo_enum_variant_name, got {:?}", av)))
                         }
