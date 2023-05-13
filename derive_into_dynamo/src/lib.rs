@@ -182,7 +182,7 @@ fn derive_from_field_line(field: &Field) -> TokenStream2 {
         attrs,
         vis: _,
         colon_token: _,
-        ty: _,
+        ty,
     } = field;
 
     let default = if let Some(attr) = attrs.iter().find(|attr| attr.path.is_ident("dynamo")) {
@@ -203,7 +203,7 @@ fn derive_from_field_line(field: &Field) -> TokenStream2 {
     let field_name = ident.clone().unwrap();
     let field_name_string = field_name.to_string();
 
-    if default {
+    if default || is_option(ty) {
         quote! {
             #field_name: map.remove(#field_name_string).map(into_dynamo::IntoAttributeValue::from_av).transpose()?.unwrap_or_default()
         }
@@ -223,19 +223,10 @@ fn derive_into_field_line(field: &Field) -> TokenStream2 {
         ty,
     } = field;
 
-    let option = if let Type::Path(path) = ty {
-        path.path
-            .segments
-            .iter()
-            .any(|segment| segment.ident == "Option")
-    } else {
-        false
-    };
-
     let field_name = ident.clone().unwrap();
     let field_name_string = field_name.to_string();
 
-    if option {
+    if is_option(ty) {
         quote! {
             if self.#field_name.is_none(){
                 None
@@ -247,6 +238,17 @@ fn derive_into_field_line(field: &Field) -> TokenStream2 {
         quote! {
             Some((#field_name_string.to_string(), self.#field_name.into_av()))
         }
+    }
+}
+
+fn is_option(ty: &Type) -> bool {
+    if let Type::Path(path) = ty {
+        path.path
+            .segments
+            .iter()
+            .any(|segment| segment.ident == "Option")
+    } else {
+        false
     }
 }
 
