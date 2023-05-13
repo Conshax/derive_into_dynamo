@@ -1,15 +1,20 @@
+#![warn(clippy::pedantic)]
+
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput, Field, Ident, Type};
+use syn::{
+    parse_macro_input, punctuated::Punctuated, token::Comma, DataEnum, DataStruct, DeriveInput,
+    Field, Ident, Type, Variant,
+};
 
 #[proc_macro_derive(IntoDynamoItem, attributes(dynamo))]
 pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     match input.data {
-        syn::Data::Struct(data) => derive_struct(input.ident, data),
-        syn::Data::Enum(data) => derive_enum(input.ident, data),
+        syn::Data::Struct(data) => derive_struct(&input.ident, data),
+        syn::Data::Enum(data) => derive_enum(&input.ident, data),
         syn::Data::Union(_) => quote!(compiler_error("Unions not implemented yet")),
     }
     .into()
@@ -33,45 +38,51 @@ struct UnnamedField {
     type_: Type,
 }
 
-fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
+fn split_variants(
+    variants: Punctuated<Variant, Comma>,
+) -> (Vec<NamedVariant>, Vec<UnnamedVariant>, Vec<Ident>) {
+    variants.into_iter().fold(
+        (Vec::new(), Vec::new(), Vec::new()),
+        |(mut named_variants, mut unnamed_variants, mut unit_variants), variant| {
+            match variant.fields {
+                syn::Fields::Named(fields) => {
+                    named_variants.push(NamedVariant {
+                        name: variant.ident,
+                        fields: fields
+                            .named
+                            .into_iter()
+                            .map(|field| NamedField {
+                                name: field.ident.unwrap(),
+                            })
+                            .collect(),
+                    });
+                }
+                syn::Fields::Unnamed(fields) => {
+                    unnamed_variants.push(UnnamedVariant {
+                        name: variant.ident,
+                        fields: fields
+                            .unnamed
+                            .into_iter()
+                            .map(|field| UnnamedField { type_: field.ty })
+                            .collect(),
+                    });
+                }
+                syn::Fields::Unit => {
+                    unit_variants.push(variant.ident);
+                }
+            };
+            (named_variants, unnamed_variants, unit_variants)
+        },
+    )
+}
+
+fn derive_enum(enum_name: &Ident, data: DataEnum) -> TokenStream2 {
     let (named_variants, unnamed_variants, unit_variants): (Vec<_>, Vec<_>, Vec<_>) =
-        data.variants.into_iter().fold(
-            (Vec::new(), Vec::new(), Vec::new()),
-            |(mut named_variants, mut unnamed_variants, mut unit_variants), variant| {
-                match variant.fields {
-                    syn::Fields::Named(fields) => {
-                        named_variants.push(NamedVariant {
-                            name: variant.ident,
-                            fields: fields
-                                .named
-                                .into_iter()
-                                .map(|field| NamedField {
-                                    name: field.ident.unwrap(),
-                                })
-                                .collect(),
-                        });
-                    }
-                    syn::Fields::Unnamed(fields) => {
-                        unnamed_variants.push(UnnamedVariant {
-                            name: variant.ident,
-                            fields: fields
-                                .unnamed
-                                .into_iter()
-                                .map(|field| UnnamedField { type_: field.ty })
-                                .collect(),
-                        });
-                    }
-                    syn::Fields::Unit => {
-                        unit_variants.push(variant.ident);
-                    }
-                };
-                (named_variants, unnamed_variants, unit_variants)
-            },
-        );
+        split_variants(data.variants);
 
     let unit_variants_string: Vec<String> = unit_variants
         .iter()
-        .map(|variant| variant.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
 
     let (named_into, named_from): (Vec<_>, Vec<_>) = named_variants
@@ -80,7 +91,7 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
             let name = variant.name;
             let name_string = name.to_string();
             let field_names: Vec<_> = variant.fields.into_iter().map(|field| field.name).collect();
-            let field_name_strings: Vec<_> = field_names.iter().map(|field| field.to_string()).collect();
+            let field_name_strings: Vec<_> = field_names.iter().map(std::string::ToString::to_string).collect();
 
             (quote!(
                 #enum_name::#name { #(#field_names),* } => aws_sdk_dynamodb::types::AttributeValue::M(
@@ -105,7 +116,7 @@ fn derive_enum(enum_name: Ident, data: DataEnum) -> TokenStream2 {
             let name_string = name.to_string();
             let field_types: Vec<_> = variant.fields.into_iter().map(|field| field.type_).collect();
             let field_names: Vec<_> = (0..field_types.len()).map(|i| format_ident!("field_{}", i)).collect();
-            let field_name_strings: Vec<_> = field_names.iter().map(|field| field.to_string()).collect();
+            let field_name_strings: Vec<_> = field_names.iter().map(std::string::ToString::to_string).collect();
 
             (quote!(
                 #enum_name::#name(#(#field_names),*) => aws_sdk_dynamodb::types::AttributeValue::M(
@@ -189,7 +200,7 @@ fn derive_from_field_line(field: &Field) -> TokenStream2 {
         false
     };
 
-    let field_name = ident.to_owned().unwrap();
+    let field_name = ident.clone().unwrap();
     let field_name_string = field_name.to_string();
 
     if default {
@@ -203,28 +214,48 @@ fn derive_from_field_line(field: &Field) -> TokenStream2 {
     }
 }
 
-fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
+fn derive_into_field_line(field: &Field) -> TokenStream2 {
+    let Field {
+        ident,
+        attrs: _,
+        vis: _,
+        colon_token: _,
+        ty,
+    } = field;
+
+    let option = if let Type::Path(path) = ty {
+        path.path
+            .segments
+            .iter()
+            .any(|segment| segment.ident == "Option")
+    } else {
+        false
+    };
+
+    let field_name = ident.clone().unwrap();
+    let field_name_string = field_name.to_string();
+
+    if option {
+        quote! {
+            if self.#field_name.is_none(){
+                None
+            } else {
+                Some((#field_name_string.to_string(), self.#field_name.clone().into_av()))
+            }
+        }
+    } else {
+        quote! {
+            Some((#field_name_string.to_string(), self.#field_name.into_av()))
+        }
+    }
+}
+
+fn derive_struct(struct_name: &Ident, data_struct: DataStruct) -> TokenStream2 {
     let binding = data_struct.fields;
 
-    let field_lines: Vec<_> = binding.iter().map(derive_from_field_line).collect();
+    let from_field_lines: Vec<_> = binding.iter().map(derive_from_field_line).collect();
 
-    let (field_name_strings, field_names): (Vec<TokenStream2>, Vec<Ident>) = binding
-        .into_iter()
-        .map(|field| {
-            let Field {
-                ident,
-                attrs: _,
-                vis: _,
-                colon_token: _,
-                ty: _,
-            } = field;
-
-            let field_name = ident.unwrap();
-            let field_name_string = field_name.to_string();
-
-            (quote!(#field_name_string.to_string()), field_name)
-        })
-        .unzip();
+    let into_field_lines: Vec<_> = binding.iter().map(derive_into_field_line).collect();
 
     let into_attribute_value = format_ident!("IntoAttributeValue_{}", struct_name);
     let into_dynamo_item = format_ident!("IntoDynamoItem_{}", struct_name);
@@ -236,13 +267,13 @@ fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
         impl #into_dynamo_item for #struct_name {
             fn into_item(self) -> std::collections::HashMap<String, aws_sdk_dynamodb::types::AttributeValue> {
                 std::collections::HashMap::from_iter(
-                    [#((#field_name_strings, self.#field_names.into_av())),*]
+                    [#(#into_field_lines),*].into_iter().filter_map(|x| x)
                 )
             }
 
             fn from_item(mut map: std::collections::HashMap<String, aws_sdk_dynamodb::types::AttributeValue>) -> std::result::Result<Self, into_dynamo::Error> {
                 Ok(#struct_name {
-                    #(#field_lines),*
+                    #(#from_field_lines),*
                 })
             }
         }
@@ -255,7 +286,7 @@ fn derive_struct(struct_name: Ident, data_struct: DataStruct) -> TokenStream2 {
             fn from_av(av: aws_sdk_dynamodb::types::AttributeValue) -> std::result::Result<Self, into_dynamo::Error> {
                 if let aws_sdk_dynamodb::types::AttributeValue::M(mut map) = av {
                     Ok(#struct_name {
-                        #(#field_lines),*
+                        #(#from_field_lines),*
                     })
                 } else {
                     Err(into_dynamo::Error::WrongType(format!("Expected M, got {:?}", av)))
