@@ -231,7 +231,7 @@ fn derive_into_field_line(field: &Field) -> TokenStream2 {
             if self.#field_name.is_none(){
                 None
             } else {
-                Some((#field_name_string.to_string(), self.#field_name.clone().into_av()))
+                Some((#field_name_string.to_string(), self.#field_name.into_av()))
             }
         }
     } else {
