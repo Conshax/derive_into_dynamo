@@ -9,7 +9,7 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-aws-sdk-dynamodb = "0.26.0"
+aws-sdk-dynamodb = "0.28.0"
 proc-macro2 = "1.0.51"
 quote = "1.0.23"
 syn = { version = "1.0.109", features = ["derive"] }
