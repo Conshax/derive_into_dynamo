@@ -3,8 +3,8 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
-use syn::Lit::Str;
-use syn::{parse_macro_input, DataStruct, DeriveInput, Field, Ident, MetaNameValue, Type};
+
+use syn::{parse_macro_input, DataStruct, DeriveInput, Field, Ident, LitStr, Type};
 
 mod enum_type;
 
@@ -21,47 +21,37 @@ pub fn derive_dynamo_item_fn(input: TokenStream) -> TokenStream {
 }
 
 fn is_default(attrs: &[syn::Attribute]) -> bool {
-    if let Some(attr) = attrs.iter().find(|attr| attr.path.is_ident("dynamo")) {
-        match attr.parse_meta() {
-            Ok(meta) => match meta {
-                syn::Meta::List(l) => match l.nested.first() {
-                    Some(syn::NestedMeta::Meta(meta)) => meta.path().is_ident("default"),
-                    _ => false,
-                },
-                _ => false,
-            },
-            Err(_) => false,
-        }
+    if let Some(attr) = attrs.iter().find(|attr| attr.path().is_ident("dynamo")) {
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("default") {
+                Ok(())
+            } else {
+                Err(meta.error("unsupported attribute"))
+            }
+        })
+        .is_ok()
     } else {
         false
     }
 }
 
 fn rename(attrs: &[syn::Attribute]) -> Option<String> {
-    let get_rename = |name_value: &MetaNameValue| {
-        if name_value.path.is_ident("rename") {
-            if let Str(str) = &name_value.lit {
-                Some(str.value())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    };
-
     attrs.iter().find_map(|attr| {
-        if attr.path.is_ident("dynamo") {
-            match attr.parse_meta() {
-                Ok(meta) => match meta {
-                    syn::Meta::Path(_) => None,
-                    syn::Meta::NameValue(name_value) => get_rename(&name_value),
-                    syn::Meta::List(l) => l.nested.iter().find_map(|meta| match meta {
-                        syn::NestedMeta::Meta(syn::Meta::NameValue(nv)) => get_rename(nv),
-                        _ => None,
-                    }),
-                },
-                Err(_) => None,
+        if attr.path().is_ident("dynamo") {
+            let mut rename = None;
+            let res = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("rename") {
+                    let value = meta.value()?; // this parses the `=`
+                    let s: LitStr = value.parse()?; // this parses `"EarlGrey"`
+                    rename = Some(s.value());
+                }
+                Ok(())
+            });
+
+            if res.is_err() {
+                None
+            } else {
+                rename
             }
         } else {
             None
@@ -76,6 +66,7 @@ fn derive_from_field_line(field: &Field) -> TokenStream2 {
         vis: _,
         colon_token: _,
         ty,
+        mutability: _,
     } = field;
 
     let default = is_default(attrs);
@@ -101,6 +92,7 @@ fn derive_into_field_line(field: &Field) -> TokenStream2 {
         vis: _,
         colon_token: _,
         ty,
+        mutability: _,
     } = field;
 
     let field_name = ident.clone().unwrap();
